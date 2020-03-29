@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func (h *handler) jsonp(rw http.ResponseWriter, req *http.Request) {
+func (h *Handler) jsonp(rw http.ResponseWriter, req *http.Request) {
 	rw.Header().Set("content-type", "application/javascript; charset=UTF-8")
 
 	req.ParseForm()
@@ -23,8 +23,12 @@ func (h *handler) jsonp(rw http.ResponseWriter, req *http.Request) {
 	rw.WriteHeader(http.StatusOK)
 	rw.(http.Flusher).Flush()
 
-	sess, _ := h.sessionByRequest(req)
-	recv := newHTTPReceiver(rw, 1, &jsonpFrameWriter{callback})
+	sess, err := h.sessionByRequest(req)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	recv := newHTTPReceiver(rw, req, 1, &jsonpFrameWriter{callback})
 	if err := sess.attachReceiver(recv); err != nil {
 		recv.sendFrame(cFrame)
 		recv.close()
@@ -36,7 +40,7 @@ func (h *handler) jsonp(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (h *handler) jsonpSend(rw http.ResponseWriter, req *http.Request) {
+func (h *Handler) jsonpSend(rw http.ResponseWriter, req *http.Request) {
 	req.ParseForm()
 	var data io.Reader
 	data = req.Body

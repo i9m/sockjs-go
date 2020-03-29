@@ -8,9 +8,9 @@ import (
 )
 
 func TestSockJS_ServeHTTP(t *testing.T) {
-	m := handler{mappings: make([]*mapping, 0)}
+	m := Handler{mappings: make([]*mapping, 0)}
 	m.mappings = []*mapping{
-		&mapping{"POST", regexp.MustCompile("/foo/.*"), []http.HandlerFunc{func(http.ResponseWriter, *http.Request) {}}},
+		{"POST", regexp.MustCompile("/foo/.*"), []http.HandlerFunc{func(http.ResponseWriter, *http.Request) {}}},
 	}
 	req, _ := http.NewRequest("GET", "/foo/bar", nil)
 	rec := httptest.NewRecorder()

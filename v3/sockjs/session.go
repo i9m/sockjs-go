@@ -1,6 +1,7 @@
 package sockjs
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"sync"
@@ -23,13 +24,14 @@ const (
 
 var (
 	// ErrSessionNotOpen error is used to denote session not in open state.
-	// Recv() and Send() operations are not suppored if session is closed.
+	// Recv() and Send() operations are not supported if session is closed.
 	ErrSessionNotOpen          = errors.New("sockjs: session not in open state")
 	errSessionReceiverAttached = errors.New("sockjs: another receiver already attached")
+	errSessionParse            = errors.New("sockjs: unable to parse URL for session")
 )
 
-type session struct {
-	sync.RWMutex
+type Session struct {
+	mux   sync.RWMutex
 	id    string
 	req   *http.Request
 	state SessionState
@@ -65,26 +67,25 @@ type receiver interface {
 }
 
 // Session is a central component that handles receiving and sending frames. It maintains internal state
-func newSession(req *http.Request, sessionID string, sessionTimeoutInterval, heartbeatInterval time.Duration) *session {
-
-	s := &session{
-		id:  sessionID,
-		req: req,
-		sessionTimeoutInterval: sessionTimeoutInterval,
+func newSession(req *http.Request, sessionID string, sessionTimeoutInterval, heartbeatInterval time.Duration) *Session {
+	s := &Session{
+		id:                     sessionID,
+		req:                    req,
 		heartbeatInterval:      heartbeatInterval,
 		recvBuffer:             newMessageBuffer(),
 		closeCh:                make(chan struct{}),
+		sessionTimeoutInterval: sessionTimeoutInterval,
 	}
 
-	s.Lock() // "go test -race" complains if ommited, not sure why as no race can happen here
+	s.mux.Lock() // "go test -race" complains if ommited, not sure why as no race can happen here
 	s.timer = time.AfterFunc(sessionTimeoutInterval, s.close)
-	s.Unlock()
+	s.mux.Unlock()
 	return s
 }
 
-func (s *session) sendMessage(msg string) error {
-	s.Lock()
-	defer s.Unlock()
+func (s *Session) sendMessage(msg string) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
 	if s.state > SessionActive {
 		return ErrSessionNotOpen
 	}
@@ -96,9 +97,9 @@ func (s *session) sendMessage(msg string) error {
 	return nil
 }
 
-func (s *session) attachReceiver(recv receiver) error {
-	s.Lock()
-	defer s.Unlock()
+func (s *Session) attachReceiver(recv receiver) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
 	if s.recv != nil {
 		return errSessionReceiverAttached
 	}
@@ -135,31 +136,31 @@ func (s *session) attachReceiver(recv receiver) error {
 	return nil
 }
 
-func (s *session) detachReceiver() {
-	s.Lock()
+func (s *Session) detachReceiver() {
+	s.mux.Lock()
 	s.timer.Stop()
 	s.timer = time.AfterFunc(s.sessionTimeoutInterval, s.close)
 	s.recv = nil
-	s.Unlock()
+	s.mux.Unlock()
 }
 
-func (s *session) heartbeat() {
-	s.Lock()
+func (s *Session) heartbeat() {
+	s.mux.Lock()
 	if s.recv != nil { // timer could have fired between Lock and timer.Stop in detachReceiver
 		s.recv.sendFrame("h")
 		s.timer = time.AfterFunc(s.heartbeatInterval, s.heartbeat)
 	}
-	s.Unlock()
+	s.mux.Unlock()
 }
 
-func (s *session) accept(messages ...string) error {
+func (s *Session) accept(messages ...string) error {
 	return s.recvBuffer.push(messages...)
 }
 
 // idempotent operation
-func (s *session) closing() {
-	s.Lock()
-	defer s.Unlock()
+func (s *Session) closing() {
+	s.mux.Lock()
+	defer s.mux.Unlock()
 	if s.state < SessionClosing {
 		s.state = SessionClosing
 		s.recvBuffer.close()
@@ -171,10 +172,10 @@ func (s *session) closing() {
 }
 
 // idempotent operation
-func (s *session) close() {
+func (s *Session) close() {
 	s.closing()
-	s.Lock()
-	defer s.Unlock()
+	s.mux.Lock()
+	defer s.mux.Unlock()
 	if s.state < SessionClosed {
 		s.state = SessionClosed
 		s.timer.Stop()
@@ -182,37 +183,25 @@ func (s *session) close() {
 	}
 }
 
-func (s *session) closedNotify() <-chan struct{} { return s.closeCh }
-
-// Conn interface implementation
-func (s *session) Close(status uint32, reason string) error {
-	s.Lock()
+func (s *Session) Close(status uint32, reason string) error {
+	s.mux.Lock()
 	if s.state < SessionClosing {
 		s.closeFrame = closeFrame(status, reason)
-		s.Unlock()
+		s.mux.Unlock()
 		s.closing()
 		return nil
 	}
-	s.Unlock()
+	s.mux.Unlock()
 	return ErrSessionNotOpen
 }
 
-func (s *session) Recv() (string, error) {
-	return s.recvBuffer.pop()
-}
-
-func (s *session) Send(msg string) error {
-	return s.sendMessage(msg)
-}
-
-func (s *session) ID() string { return s.id }
-
-func (s *session) GetSessionState() SessionState {
-	s.RLock()
-	defer s.RUnlock()
+func (s *Session) Recv() (string, error)                       { return s.recvBuffer.pop(context.Background()) }
+func (s *Session) RecvCtx(ctx context.Context) (string, error) { return s.recvBuffer.pop(ctx) }
+func (s *Session) Send(msg string) error                       { return s.sendMessage(msg) }
+func (s *Session) ID() string                                  { return s.id }
+func (s *Session) Request() *http.Request                      { return s.req }
+func (s *Session) GetSessionState() SessionState {
+	s.mux.RLock()
+	defer s.mux.RUnlock()
 	return s.state
-}
-
-func (s *session) Request() *http.Request {
-	return s.req
 }

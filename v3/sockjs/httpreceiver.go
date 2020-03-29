@@ -31,7 +31,7 @@ type httpReceiver struct {
 	interruptCh         chan struct{}
 }
 
-func newHTTPReceiver(rw http.ResponseWriter, maxResponse uint32, frameWriter frameWriter) *httpReceiver {
+func newHTTPReceiver(rw http.ResponseWriter, req *http.Request, maxResponse uint32, frameWriter frameWriter) *httpReceiver {
 	recv := &httpReceiver{
 		rw:              rw,
 		frameWriter:     frameWriter,
@@ -39,24 +39,22 @@ func newHTTPReceiver(rw http.ResponseWriter, maxResponse uint32, frameWriter fra
 		doneCh:          make(chan struct{}),
 		interruptCh:     make(chan struct{}),
 	}
-	if closeNotifier, ok := rw.(http.CloseNotifier); ok {
-		// if supported check for close notifications from http.RW
-		closeNotifyCh := closeNotifier.CloseNotify()
-		go func() {
-			select {
-			case <-closeNotifyCh:
-				recv.Lock()
-				defer recv.Unlock()
-				if recv.state < stateHTTPReceiverClosed {
-					recv.state = stateHTTPReceiverClosed
-					close(recv.interruptCh)
-				}
-			case <-recv.doneCh:
-				// ok, no action needed here, receiver closed in correct way
-				// just finish the routine
+	ctx := req.Context()
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			recv.Lock()
+			defer recv.Unlock()
+			if recv.state < stateHTTPReceiverClosed {
+				recv.state = stateHTTPReceiverClosed
+				close(recv.interruptCh)
 			}
-		}()
-	}
+		case <-recv.doneCh:
+			// ok, no action needed here, receiver closed in correct way
+			// just finish the routine
+		}
+	}()
 	return recv
 }
 

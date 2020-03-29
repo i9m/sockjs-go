@@ -9,28 +9,13 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// WebSocketReadBufSize is a parameter that is used for WebSocket Upgrader.
-// https://github.com/gorilla/websocket/blob/master/server.go#L230
-var WebSocketReadBufSize = 4096
-
-// WebSocketWriteBufSize is a parameter that is used for WebSocket Upgrader
-// https://github.com/gorilla/websocket/blob/master/server.go#L230
-var WebSocketWriteBufSize = 4096
-
-func (h *handler) sockjsWebsocket(rw http.ResponseWriter, req *http.Request) {
-	var conn *websocket.Conn
-	var err error
-	if h.options.WebsocketUpgrader != nil {
-		conn, err = h.options.WebsocketUpgrader.Upgrade(rw, req, nil)
-	} else {
-		// use default as before, so that those 2 buffer size variables are used as before
-		conn, err = websocket.Upgrade(rw, req, nil, WebSocketReadBufSize, WebSocketWriteBufSize)
+func (h *Handler) sockjsWebsocket(rw http.ResponseWriter, req *http.Request) {
+	upgrader := h.options.WebsocketUpgrader
+	if upgrader == nil {
+		upgrader = new(websocket.Upgrader)
 	}
-	if _, ok := err.(websocket.HandshakeError); ok {
-		http.Error(rw, `Can "Upgrade" only to "WebSocket".`, http.StatusBadRequest)
-		return
-	} else if err != nil {
-		rw.WriteHeader(http.StatusInternalServerError)
+	conn, err := upgrader.Upgrade(rw, req, nil)
+	if err != nil {
 		return
 	}
 	sessID, _ := h.parseSessionID(req.URL)

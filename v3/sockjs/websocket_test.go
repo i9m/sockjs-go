@@ -35,8 +35,8 @@ func TestHandler_WebSocket(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(h.sockjsWebsocket))
 	defer server.CloseClientConnections()
 	url := "ws" + server.URL[4:]
-	var connCh = make(chan Session)
-	h.handlerFunc = func(conn Session) { connCh <- conn }
+	var connCh = make(chan *Session)
+	h.handlerFunc = func(conn *Session) { connCh <- conn }
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
 		t.Errorf("Unexpected error '%v'", err)
@@ -65,7 +65,7 @@ func TestHandler_WebSocketTerminationByServer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(h.sockjsWebsocket))
 	defer server.Close()
 	url := "ws" + server.URL[4:]
-	h.handlerFunc = func(conn Session) {
+	h.handlerFunc = func(conn *Session) {
 		conn.Close(1024, "some close message")
 		conn.Close(0, "this should be ignored")
 	}
@@ -101,7 +101,7 @@ func TestHandler_WebSocketTerminationByClient(t *testing.T) {
 	defer server.Close()
 	url := "ws" + server.URL[4:]
 	var done = make(chan struct{})
-	h.handlerFunc = func(conn Session) {
+	h.handlerFunc = func(conn *Session) {
 		if _, err := conn.Recv(); err != ErrSessionNotOpen {
 			t.Errorf("Recv should fail")
 		}
@@ -123,7 +123,7 @@ func TestHandler_WebSocketCommunication(t *testing.T) {
 	// defer server.CloseClientConnections()
 	url := "ws" + server.URL[4:]
 	var done = make(chan struct{})
-	h.handlerFunc = func(conn Session) {
+	h.handlerFunc = func(conn *Session) {
 		conn.Send("message 1")
 		conn.Send("message 2")
 		msg, err := conn.Recv()
@@ -157,7 +157,7 @@ func TestHandler_CustomWebSocketCommunication(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(h.sockjsWebsocket))
 	url := "ws" + server.URL[4:]
 	var done = make(chan struct{})
-	h.handlerFunc = func(conn Session) {
+	h.handlerFunc = func(conn *Session) {
 		conn.Send("message 1")
 		conn.Send("message 2")
 		msg, err := conn.Recv()

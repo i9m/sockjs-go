@@ -9,7 +9,7 @@ import (
 
 var tmpl = template.Must(template.New("iframe").Parse(iframeBody))
 
-func (h *handler) iframe(rw http.ResponseWriter, req *http.Request) {
+func (h *Handler) iframe(rw http.ResponseWriter, req *http.Request) {
 	etagReq := req.Header.Get("If-None-Match")
 	hash := md5.New()
 	hash.Write([]byte(iframeBody))

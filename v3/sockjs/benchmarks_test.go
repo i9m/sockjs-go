@@ -18,7 +18,7 @@ import (
 
 func BenchmarkSimple(b *testing.B) {
 	var messages = make(chan string, 10)
-	h := NewHandler("/echo", DefaultOptions, func(session Session) {
+	h := NewHandler("/echo", DefaultOptions, func(session *Session) {
 		for m := range messages {
 			session.Send(m)
 		}
@@ -42,7 +42,7 @@ func BenchmarkSimple(b *testing.B) {
 
 func BenchmarkMessages(b *testing.B) {
 	msg := strings.Repeat("m", 10)
-	h := NewHandler("/echo", DefaultOptions, func(session Session) {
+	h := NewHandler("/echo", DefaultOptions, func(session *Session) {
 		for n := 0; n < b.N; n++ {
 			session.Send(msg)
 		}
@@ -101,7 +101,7 @@ func BenchmarkMessageWebsocket(b *testing.B) {
 		ResponseLimit:   uint32(*size),
 	}
 
-	h := NewHandler("/echo", opts, func(session Session) {
+	h := NewHandler("/echo", opts, func(session *Session) {
 		for {
 			msg, err := session.Recv()
 			if err != nil {
@@ -151,7 +151,7 @@ func BenchmarkMessageWebsocket(b *testing.B) {
 }
 
 func BenchmarkHandler_ParseSessionID(b *testing.B) {
-	h := handler{prefix: "/prefix"}
+	h := Handler{prefix: "/prefix"}
 	url, _ := url.Parse("http://server:80/prefix/server/session/whatever")
 
 	b.ReportAllocs()

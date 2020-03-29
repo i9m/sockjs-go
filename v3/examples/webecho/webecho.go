@@ -26,7 +26,7 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func echoHandler(session sockjs.Session) {
+func echoHandler(session *sockjs.Session) {
 	log.Println("new sockjs session established")
 	for {
 		if msg, err := session.Recv(); err == nil {

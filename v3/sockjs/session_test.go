@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func newTestSession() *session {
+func newTestSession() *Session {
 	// session with long expiration and heartbeats with ID
 	return newSession(nil, "sessionId", 1000*time.Second, 1000*time.Second)
 }
@@ -232,9 +232,6 @@ func TestSession_Closing(t *testing.T) {
 		t.Errorf("Session should not accept new message after close")
 	}
 }
-
-// Session as Session Tests
-func TestSession_AsSession(t *testing.T) { var _ Session = newSession(nil, "id", 0, 0) }
 
 func TestSession_SessionRecv(t *testing.T) {
 	s := newTestSession()

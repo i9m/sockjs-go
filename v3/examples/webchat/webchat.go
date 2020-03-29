@@ -4,11 +4,10 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/igm/pubsub"
 	"github.com/igm/sockjs-go/v3/sockjs"
 )
 
-var chat pubsub.Publisher
+var chat Publisher
 
 func main() {
 	http.Handle("/echo/", sockjs.NewHandler("/echo", sockjs.DefaultOptions, echoHandler))
@@ -17,7 +16,7 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func echoHandler(session sockjs.Session) {
+func echoHandler(session *sockjs.Session) {
 	log.Println("new sockjs session established")
 	var closedSession = make(chan struct{})
 	chat.Publish("[info] new participant joined chat")
