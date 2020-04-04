@@ -1,4 +1,4 @@
-module github.com/igm/sockjs-go/v3
+module github.com/i9m/sockjs-go/v3
 
 go 1.14
 

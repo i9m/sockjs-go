@@ -5,7 +5,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/igm/sockjs-go/v3/sockjs"
+	"github.com/i9m/sockjs-go/v3/sockjs"
 )
 
 var (
@@ -26,11 +26,13 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func echoHandler(session *sockjs.Session) {
+func echoHandler(session sockjs.Session) {
 	log.Println("new sockjs session established")
 	for {
 		if msg, err := session.Recv(); err == nil {
-			session.Send(msg)
+			if err := session.Send(msg); err != nil {
+				break
+			}
 			continue
 		}
 		break

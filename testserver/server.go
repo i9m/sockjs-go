@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/igm/sockjs-go/sockjs"
+	"github.com/i9m/sockjs-go/sockjs"
 )
 
 type testHandler struct {
