@@ -3,7 +3,7 @@ package sockjs_test
 import (
 	"net/http"
 
-	"github.com/igm/sockjs-go/v3/sockjs"
+	"github.com/i9m/sockjs-go/v3/sockjs"
 )
 
 func ExampleNewHandler_simple() {
@@ -18,7 +18,7 @@ func ExampleNewHandler_simple() {
 			}
 		}
 	})
-	http.ListenAndServe(":8080", handler)
+	_ = http.ListenAndServe(":8080", handler)
 }
 
 func ExampleNewHandler_defaultMux() {
@@ -35,5 +35,5 @@ func ExampleNewHandler_defaultMux() {
 	})
 	// need to provide path prefix for http.Mux
 	http.Handle("/echo/", handler)
-	http.ListenAndServe(":8080", nil)
+	_ = http.ListenAndServe(":8080", nil)
 }

@@ -1,6 +1,7 @@
 package sockjs
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"sync"
@@ -23,13 +24,16 @@ const (
 
 var (
 	// ErrSessionNotOpen error is used to denote session not in open state.
-	// Recv() and Send() operations are not suppored if session is closed.
+	// Recv() and Send() operations are not supported if session is closed.
 	ErrSessionNotOpen          = errors.New("sockjs: session not in open state")
 	errSessionReceiverAttached = errors.New("sockjs: another receiver already attached")
+	errSessionParse            = errors.New("sockjs: unable to parse URL for session")
 )
 
+type Session = *session
+
 type session struct {
-	sync.RWMutex
+	mux   sync.RWMutex
 	id    string
 	req   *http.Request
 	state SessionState
@@ -52,9 +56,9 @@ type session struct {
 
 type receiver interface {
 	// sendBulk send multiple data messages in frame frame in format: a["msg 1", "msg 2", ....]
-	sendBulk(...string)
+	sendBulk(...string) error
 	// sendFrame sends given frame over the wire (with possible chunking depending on receiver)
-	sendFrame(string)
+	sendFrame(string) error
 	// close closes the receiver in a "done" way (idempotent)
 	close()
 	canSend() bool
@@ -64,41 +68,42 @@ type receiver interface {
 	interruptedNotify() <-chan struct{}
 }
 
-// Session is a central component that handles receiving and sending frames. It maintains internal state
+// session is a central component that handles receiving and sending frames. It maintains internal state
 func newSession(req *http.Request, sessionID string, sessionTimeoutInterval, heartbeatInterval time.Duration) *session {
-
 	s := &session{
-		id:  sessionID,
-		req: req,
-		sessionTimeoutInterval: sessionTimeoutInterval,
+		id:                     sessionID,
+		req:                    req,
 		heartbeatInterval:      heartbeatInterval,
 		recvBuffer:             newMessageBuffer(),
 		closeCh:                make(chan struct{}),
+		sessionTimeoutInterval: sessionTimeoutInterval,
 	}
 
-	s.Lock() // "go test -race" complains if ommited, not sure why as no race can happen here
+	s.mux.Lock() // "go test -race" complains if ommited, not sure why as no race can happen here
 	s.timer = time.AfterFunc(sessionTimeoutInterval, s.close)
-	s.Unlock()
+	s.mux.Unlock()
 	return s
 }
 
 func (s *session) sendMessage(msg string) error {
-	s.Lock()
-	defer s.Unlock()
+	s.mux.Lock()
+	defer s.mux.Unlock()
 	if s.state > SessionActive {
 		return ErrSessionNotOpen
 	}
 	s.sendBuffer = append(s.sendBuffer, msg)
 	if s.recv != nil && s.recv.canSend() {
-		s.recv.sendBulk(s.sendBuffer...)
+		if err := s.recv.sendBulk(s.sendBuffer...); err != nil {
+			return err
+		}
 		s.sendBuffer = nil
 	}
 	return nil
 }
 
 func (s *session) attachReceiver(recv receiver) error {
-	s.Lock()
-	defer s.Unlock()
+	s.mux.Lock()
+	defer s.mux.Unlock()
 	if s.recv != nil {
 		return errSessionReceiverAttached
 	}
@@ -115,18 +120,24 @@ func (s *session) attachReceiver(recv receiver) error {
 
 	if s.state == SessionClosing {
 		if !s.raw {
-			s.recv.sendFrame(s.closeFrame)
+			if err := s.recv.sendFrame(s.closeFrame); err != nil {
+				return err
+			}
 		}
 		s.recv.close()
 		return nil
 	}
 	if s.state == SessionOpening {
 		if !s.raw {
-			s.recv.sendFrame("o")
+			if err := s.recv.sendFrame("o"); err != nil {
+				return err
+			}
 		}
 		s.state = SessionActive
 	}
-	s.recv.sendBulk(s.sendBuffer...)
+	if err := s.recv.sendBulk(s.sendBuffer...); err != nil {
+		return err
+	}
 	s.sendBuffer = nil
 	s.timer.Stop()
 	if s.heartbeatInterval > 0 {
@@ -136,20 +147,20 @@ func (s *session) attachReceiver(recv receiver) error {
 }
 
 func (s *session) detachReceiver() {
-	s.Lock()
+	s.mux.Lock()
 	s.timer.Stop()
 	s.timer = time.AfterFunc(s.sessionTimeoutInterval, s.close)
 	s.recv = nil
-	s.Unlock()
+	s.mux.Unlock()
 }
 
 func (s *session) heartbeat() {
-	s.Lock()
+	s.mux.Lock()
 	if s.recv != nil { // timer could have fired between Lock and timer.Stop in detachReceiver
-		s.recv.sendFrame("h")
+		_ = s.recv.sendFrame("h")
 		s.timer = time.AfterFunc(s.heartbeatInterval, s.heartbeat)
 	}
-	s.Unlock()
+	s.mux.Unlock()
 }
 
 func (s *session) accept(messages ...string) error {
@@ -158,13 +169,13 @@ func (s *session) accept(messages ...string) error {
 
 // idempotent operation
 func (s *session) closing() {
-	s.Lock()
-	defer s.Unlock()
+	s.mux.Lock()
+	defer s.mux.Unlock()
 	if s.state < SessionClosing {
 		s.state = SessionClosing
 		s.recvBuffer.close()
 		if s.recv != nil {
-			s.recv.sendFrame(s.closeFrame)
+			_ = s.recv.sendFrame(s.closeFrame)
 			s.recv.close()
 		}
 	}
@@ -173,8 +184,8 @@ func (s *session) closing() {
 // idempotent operation
 func (s *session) close() {
 	s.closing()
-	s.Lock()
-	defer s.Unlock()
+	s.mux.Lock()
+	defer s.mux.Unlock()
 	if s.state < SessionClosed {
 		s.state = SessionClosed
 		s.timer.Stop()
@@ -182,37 +193,25 @@ func (s *session) close() {
 	}
 }
 
-func (s *session) closedNotify() <-chan struct{} { return s.closeCh }
-
-// Conn interface implementation
 func (s *session) Close(status uint32, reason string) error {
-	s.Lock()
+	s.mux.Lock()
 	if s.state < SessionClosing {
 		s.closeFrame = closeFrame(status, reason)
-		s.Unlock()
+		s.mux.Unlock()
 		s.closing()
 		return nil
 	}
-	s.Unlock()
+	s.mux.Unlock()
 	return ErrSessionNotOpen
 }
 
-func (s *session) Recv() (string, error) {
-	return s.recvBuffer.pop()
-}
-
-func (s *session) Send(msg string) error {
-	return s.sendMessage(msg)
-}
-
-func (s *session) ID() string { return s.id }
-
+func (s *session) Recv() (string, error)                       { return s.recvBuffer.pop(context.Background()) }
+func (s *session) RecvCtx(ctx context.Context) (string, error) { return s.recvBuffer.pop(ctx) }
+func (s *session) Send(msg string) error                       { return s.sendMessage(msg) }
+func (s *session) ID() string                                  { return s.id }
+func (s *session) Request() *http.Request                      { return s.req }
 func (s *session) GetSessionState() SessionState {
-	s.RLock()
-	defer s.RUnlock()
+	s.mux.RLock()
+	defer s.mux.RUnlock()
 	return s.state
-}
-
-func (s *session) Request() *http.Request {
-	return s.req
 }

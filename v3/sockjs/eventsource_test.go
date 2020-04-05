@@ -1,6 +1,7 @@
 package sockjs
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -23,13 +24,13 @@ func TestHandler_EventSource(t *testing.T) {
 		}
 		for exists := false; !exists; {
 			runtime.Gosched()
-			sess.RLock()
+			sess.mux.RLock()
 			exists = sess.recv != nil
-			sess.RUnlock()
+			sess.mux.RUnlock()
 		}
-		sess.RLock()
+		sess.mux.RLock()
 		sess.recv.close()
-		sess.RUnlock()
+		sess.mux.RUnlock()
 	}()
 	h.eventSource(rw, req)
 	contentType := rw.Header().Get("content-type")
@@ -52,7 +53,7 @@ func TestHandler_EventSourceMultipleConnections(t *testing.T) {
 	rw := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/server/sess/eventsource", nil)
 	go func() {
-		rw := &ClosableRecorder{httptest.NewRecorder(), nil}
+		rw := httptest.NewRecorder()
 		h.eventSource(rw, req)
 		if rw.Body.String() != "\r\ndata: c[2010,\"Another connection still open\"]\r\n\r\n" {
 			t.Errorf("wrong, got '%v'", rw.Body)
@@ -71,16 +72,18 @@ func TestHandler_EventSourceConnectionInterrupted(t *testing.T) {
 	sess.state = SessionActive
 	h.sessions["session"] = sess
 	req, _ := http.NewRequest("POST", "/server/session/eventsource", nil)
-	rw := newClosableRecorder()
-	close(rw.closeNotifCh)
+	ctx, cancel := context.WithCancel(req.Context())
+	req = req.WithContext(ctx)
+	rw := httptest.NewRecorder()
+	cancel()
 	h.eventSource(rw, req)
 	select {
 	case <-sess.closeCh:
 	case <-time.After(1 * time.Second):
 		t.Errorf("session close channel should be closed")
 	}
-	sess.Lock()
+	sess.mux.Lock()
 	if sess.state != SessionClosed {
-		t.Errorf("Session should be closed")
+		t.Errorf("session should be closed")
 	}
 }

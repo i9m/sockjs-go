@@ -17,7 +17,7 @@ func init() {
 }
 
 func TestHandler_Create(t *testing.T) {
-	handler := newHandler("/echo", testOptions, nil)
+	handler := NewHandler("/echo", testOptions, nil)
 	if handler.Prefix() != "/echo" {
 		t.Errorf("Prefix not properly set, got '%s' expected '%s'", handler.Prefix(), "/echo")
 	}
@@ -42,7 +42,7 @@ func TestHandler_Create(t *testing.T) {
 }
 
 func TestHandler_RootPrefixInfoHandler(t *testing.T) {
-	handler := newHandler("", testOptions, nil)
+	handler := NewHandler("", testOptions, nil)
 	if handler.Prefix() != "" {
 		t.Errorf("Prefix not properly set, got '%s' expected '%s'", handler.Prefix(), "")
 	}
@@ -61,6 +61,7 @@ func TestHandler_RootPrefixInfoHandler(t *testing.T) {
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Unexpected status code receiver, got '%d' expected '%d'", resp.StatusCode, http.StatusOK)
+		t.FailNow()
 	}
 	infoData, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
@@ -77,30 +78,26 @@ func TestHandler_RootPrefixInfoHandler(t *testing.T) {
 }
 
 func TestHandler_ParseSessionId(t *testing.T) {
-	h := handler{prefix: "/prefix"}
-	url, _ := url.Parse("http://server:80/prefix/server/session/whatever")
+	h := Handler{prefix: "/prefix"}
+	url, _ := url.Parse("http://server:80/server/session/whatever")
 	if session, err := h.parseSessionID(url); session != "session" || err != nil {
 		t.Errorf("Wrong session parsed, got '%s' expected '%s' with error = '%v'", session, "session", err)
-	}
-	url, _ = url.Parse("http://server:80/asdasd/server/session/whatever")
-	if _, err := h.parseSessionID(url); err == nil {
-		t.Errorf("Should return error")
 	}
 }
 
 func TestHandler_SessionByRequest(t *testing.T) {
-	h := newHandler("", testOptions, nil)
+	h := NewHandler("", testOptions, nil)
 	h.options.DisconnectDelay = 10 * time.Millisecond
-	var handlerFuncCalled = make(chan Session)
-	h.handlerFunc = func(conn Session) { handlerFuncCalled <- conn }
+	var handlerFuncCalled = make(chan *session)
+	h.handlerFunc = func(s *session) { handlerFuncCalled <- s }
 	req, _ := http.NewRequest("POST", "/server/sessionid/whatever/follows", nil)
 	sess, err := h.sessionByRequest(req)
 	if sess == nil || err != nil {
-		t.Errorf("Session should be returned")
+		t.Errorf("session should be returned")
 		// test handlerFunc was called
 		select {
-		case conn := <-handlerFuncCalled: // ok
-			if conn != sess {
+		case s := <-handlerFuncCalled: // ok
+			if s != sess {
 				t.Errorf("Handler was not passed correct session")
 			}
 		case <-time.After(100 * time.Millisecond):
@@ -116,7 +113,7 @@ func TestHandler_SessionByRequest(t *testing.T) {
 	time.Sleep(15 * time.Millisecond)
 	h.sessionsMux.Lock()
 	if _, exists := h.sessions["sessionid"]; exists {
-		t.Errorf("Session should not exist in handler after timeout")
+		t.Errorf("session should not exist in handler after timeout")
 	}
 	h.sessionsMux.Unlock()
 	// test proper behaviour in case URL is not correct

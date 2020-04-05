@@ -13,7 +13,7 @@ var (
 	xhrStreamingPrelude = strings.Repeat("h", 2048)
 )
 
-func (h *handler) xhrSend(rw http.ResponseWriter, req *http.Request) {
+func (h *Handler) xhrSend(rw http.ResponseWriter, req *http.Request) {
 	if req.Body == nil {
 		httpError(rw, "Payload expected.", http.StatusInternalServerError)
 		return
@@ -39,7 +39,10 @@ func (h *handler) xhrSend(rw http.ResponseWriter, req *http.Request) {
 	if sess, ok := h.sessions[sessionID]; !ok {
 		http.NotFound(rw, req)
 	} else {
-		_ = sess.accept(messages...)                                 // TODO(igm) reponse with SISE in case of err?
+		if err := sess.accept(messages...); err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		rw.Header().Set("content-type", "text/plain; charset=UTF-8") // Ignored by net/http (but protocol test complains), see https://code.google.com/p/go/source/detail?r=902dc062bff8
 		rw.WriteHeader(http.StatusNoContent)
 	}
@@ -51,12 +54,19 @@ func (*xhrFrameWriter) write(w io.Writer, frame string) (int, error) {
 	return fmt.Fprintf(w, "%s\n", frame)
 }
 
-func (h *handler) xhrPoll(rw http.ResponseWriter, req *http.Request) {
+func (h *Handler) xhrPoll(rw http.ResponseWriter, req *http.Request) {
 	rw.Header().Set("content-type", "application/javascript; charset=UTF-8")
-	sess, _ := h.sessionByRequest(req) // TODO(igm) add err handling, although err should not happen as handler should not pass req in that case
-	receiver := newHTTPReceiver(rw, 1, new(xhrFrameWriter))
+	sess, err := h.sessionByRequest(req)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	receiver := newHTTPReceiver(rw, req, 1, new(xhrFrameWriter))
 	if err := sess.attachReceiver(receiver); err != nil {
-		receiver.sendFrame(cFrame)
+		if err := receiver.sendFrame(cFrame); err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		receiver.close()
 		return
 	}
@@ -67,16 +77,23 @@ func (h *handler) xhrPoll(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (h *handler) xhrStreaming(rw http.ResponseWriter, req *http.Request) {
+func (h *Handler) xhrStreaming(rw http.ResponseWriter, req *http.Request) {
 	rw.Header().Set("content-type", "application/javascript; charset=UTF-8")
 	fmt.Fprintf(rw, "%s\n", xhrStreamingPrelude)
 	rw.(http.Flusher).Flush()
 
-	sess, _ := h.sessionByRequest(req)
-	receiver := newHTTPReceiver(rw, h.options.ResponseLimit, new(xhrFrameWriter))
+	sess, err := h.sessionByRequest(req)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	receiver := newHTTPReceiver(rw, req, h.options.ResponseLimit, new(xhrFrameWriter))
 
 	if err := sess.attachReceiver(receiver); err != nil {
-		receiver.sendFrame(cFrame)
+		if err := receiver.sendFrame(cFrame); err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		receiver.close()
 		return
 	}

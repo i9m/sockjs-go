@@ -1,6 +1,7 @@
 package sockjs
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -89,7 +90,7 @@ func TestHandler_XhrSendInvalidInput(t *testing.T) {
 }
 
 func TestHandler_XhrSendSessionNotFound(t *testing.T) {
-	h := handler{}
+	h := Handler{}
 	req, _ := http.NewRequest("POST", "/server/session/xhr_send", strings.NewReader("[\"some message\"]"))
 	rec := httptest.NewRecorder()
 	h.xhrSend(rec, req)
@@ -114,13 +115,15 @@ func TestHandler_XhrPollConnectionInterrupted(t *testing.T) {
 	sess.state = SessionActive
 	h.sessions["session"] = sess
 	req, _ := http.NewRequest("POST", "/server/session/xhr", nil)
-	rw := newClosableRecorder()
-	close(rw.closeNotifCh)
+	ctx, cancel := context.WithCancel(req.Context())
+	req = req.WithContext(ctx)
+	rw := httptest.NewRecorder()
+	cancel()
 	h.xhrPoll(rw, req)
 	time.Sleep(1 * time.Millisecond)
-	sess.Lock()
+	sess.mux.Lock()
 	if sess.state != SessionClosed {
-		t.Errorf("Session should be closed")
+		t.Errorf("session should be closed")
 	}
 }
 
@@ -130,7 +133,7 @@ func TestHandler_XhrPollAnotherConnectionExists(t *testing.T) {
 	// turn of timeoutes and heartbeats
 	sess := newSession(req, "session", time.Hour, time.Hour)
 	h.sessions["session"] = sess
-	sess.attachReceiver(newTestReceiver())
+	noError(t, sess.attachReceiver(newTestReceiver()))
 	req, _ = http.NewRequest("POST", "/server/session/xhr", nil)
 	rw2 := httptest.NewRecorder()
 	h.xhrPoll(rw2, req)
@@ -141,7 +144,7 @@ func TestHandler_XhrPollAnotherConnectionExists(t *testing.T) {
 
 func TestHandler_XhrStreaming(t *testing.T) {
 	h := newTestHandler()
-	rw := newClosableRecorder()
+	rw := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/server/session/xhr_streaming", nil)
 	h.xhrStreaming(rw, req)
 	expectedBody := strings.Repeat("h", 2048) + "\no\n"
@@ -153,8 +156,10 @@ func TestHandler_XhrStreaming(t *testing.T) {
 func TestHandler_XhrStreamingAnotherReceiver(t *testing.T) {
 	h := newTestHandler()
 	h.options.ResponseLimit = 4096
-	rw1 := newClosableRecorder()
+	rw1 := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/server/session/xhr_streaming", nil)
+	ctx, cancel := context.WithCancel(req.Context())
+	req = req.WithContext(ctx)
 	go func() {
 		rec := httptest.NewRecorder()
 		h.xhrStreaming(rec, req)
@@ -162,26 +167,15 @@ func TestHandler_XhrStreamingAnotherReceiver(t *testing.T) {
 		if rec.Body.String() != expectedBody {
 			t.Errorf("Unexpected body got '%s', expected '%s', ", rec.Body, expectedBody)
 		}
-		close(rw1.closeNotifCh)
+		cancel()
 	}()
 	h.xhrStreaming(rw1, req)
 }
 
 // various test only structs
-func newTestHandler() *handler {
-	h := &handler{sessions: make(map[string]*session)}
+func newTestHandler() *Handler {
+	h := &Handler{sessions: make(map[string]*session)}
 	h.options.HeartbeatDelay = time.Hour
 	h.options.DisconnectDelay = time.Hour
 	return h
 }
-
-type ClosableRecorder struct {
-	*httptest.ResponseRecorder
-	closeNotifCh chan bool
-}
-
-func newClosableRecorder() *ClosableRecorder {
-	return &ClosableRecorder{httptest.NewRecorder(), make(chan bool)}
-}
-
-func (cr *ClosableRecorder) CloseNotify() <-chan bool { return cr.closeNotifCh }
