@@ -1,19 +1,30 @@
 package sockjs
 
-import "net/http"
+import (
+	"net/http"
 
-// Session represents a connection between server and client.
-type Session interface {
-	// Id returns a session id
-	ID() string
-	// Request returns the first http request
-	Request() *http.Request
-	// Recv reads one text frame from session
-	Recv() (string, error)
-	// Send sends one text frame to session
-	Send(string) error
-	// Close closes the session with provided code and reason.
-	Close(status uint32, reason string) error
-	//Gets the state of the session. SessionOpening/SessionActive/SessionClosing/SessionClosed;
-	GetSessionState() SessionState
+	"github.com/i9m/sockjs-go/v3/sockjs"
+)
+
+type Session = sockjs.Session
+type Options = sockjs.Options
+type Handler = sockjs.Handler
+type SessionState = sockjs.SessionState
+
+const (
+	SessionOpening = sockjs.SessionOpening
+	SessionActive  = sockjs.SessionActive
+	SessionClosing = sockjs.SessionClosing
+	SessionClosed  = sockjs.SessionClosed
+)
+
+var DefaultOptions = sockjs.DefaultOptions
+var ErrErrSessionNotOpen = sockjs.ErrSessionNotOpen
+
+func NewHandler(prefix string, opts Options, handlerFunc func(Session)) *Handler {
+	return sockjs.NewHandler(prefix, opts, handlerFunc)
+}
+
+func DefaultJSessionID(rw http.ResponseWriter, req *http.Request) {
+	sockjs.DefaultJSessionID(rw, req)
 }

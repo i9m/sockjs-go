@@ -7,7 +7,6 @@ import (
 	"github.com/i9m/sockjs-go/v3/sockjs"
 )
 
-
 func main() {
 	http.Handle("/echo/", sockjs.NewHandler("/echo", sockjs.DefaultOptions, echoHandler))
 	http.Handle("/", http.FileServer(http.Dir("web/")))
